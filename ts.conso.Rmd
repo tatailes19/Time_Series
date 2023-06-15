@@ -1,0 +1,468 @@
+---
+title: "Modelisation univariée + multivariée"
+output:
+  html_document: default
+  pdf_document: default
+  always_allow_html: yes
+  word_document: default
+date: "2022-12-22"
+---
+
+```{r echo=TRUE, warning=FALSE}
+library(tidyverse)
+library(fpp)
+library(forecast)
+library(tseries)
+library(readxl)
+library(vars)
+library(urca)
+library(lmtest)
+library(ggforce)
+library(tsDyn)
+library(TSstudio)
+```
+
+```{r echo=TRUE}
+setwd("D:/Python-R/Databases")
+data=read.table("exemple.txt")
+colnames(data)<-c("Date","INV","INC","CS")
+```
+
+```{r echo=TRUE}
+urcp<-function(x,color="red"){
+  root.comp <- Im(roots(x, modulus=FALSE ))
+  root.real <- Re(roots(x, modulus=FALSE ))  
+  ggplot(as.data.frame(cbind(root.real,root.comp)))+
+    geom_circle( aes(x0 = 0, y0 = 0, r = 1))+
+    theme_gray()+geom_hline(yintercept = 0)+
+    geom_vline(xintercept = 0)+
+    geom_point(aes(root.real,root.comp,
+                   size=0.5,col=color))
+}
+```
+
+# $I-$Analyse univariée
+
+### -Defenir les series time series objects
+
+```{r}
+inv=ts(data$INV,c(1960,1),frequency=4)
+inc=ts(data$INC,c(1960,1),frequency=4)
+cs=ts(data$CS,c(1960,1),frequency=4)
+```
+
+### -Graphes
+
+```{r}
+autoplot(cbind(inv,inc,cs))
+```
+
+### -Decomposition
+
+```{r}
+ts_decompose(cs)
+ts_decompose(inv)
+ts_decompose(inc)
+```
+
+### -Graphes + acf + pacf
+
+```{r}
+cs%>%ggtsdisplay(main="Serie cs")
+```
+
+```{r}
+inc%>%ggtsdisplay(main="Serie inc")
+```
+
+```{r}
+inv%>%ggtsdisplay(main="Serie inv")
+```
+
+Toutes series non stationnaire d'apres acf
+
+### -Tests formels de non stationnarité
+
+###### ADF test
+
+```{r warning=FALSE}
+apply(data[,2:4],2,adf.test)
+```
+
+accepter H0 pour toutes les series p\>0.05
+
+###### Kpss test
+
+```{r warning=FALSE}
+apply(cbind(log(cs),log(inc),log(inv)),2,kpss.test)
+```
+
+###### Pearson test
+
+```{r warning=FALSE}
+apply(data[,2:4],2,pp.test)
+```
+
+tests indiquent une non stationnarité
+
+### -Stratégie de Dickey-Fuller sur LOG des séries
+
+###### -log(cs)
+
+modele3
+
+```{r}
+ur.df(log(cs),selectlags="AIC",type="trend")%>%summary()  
+```
+
+$H_0$ acceptée p=0.849\>0.05
+
+$H_0^3$ acceptée $F_c=1.75<6.49$
+
+modele2
+
+```{r}
+ur.df(log(cs),selectlags="AIC",type="drift")%>%summary()  
+```
+
+$H_0$ acceptée p=0.06\>0.05
+
+$H_0^1$ rejetée $F_c=38.02>4.71$
+
+###### Non stationnarité type DS avec constante
+
+###### -log(inv)
+
+#modele3
+
+```{r}
+ur.df(log(inv),selectlags="AIC",type="trend")%>%summary()  
+```
+
+$H_0$ rejetée p=0.0419\<0.05
+
+test de tendance $H_0$ acceptée $p=0.688>0.05$ ==\> trend non significatif
+
+#modele2
+
+```{r}
+ur.df(log(inv),selectlags="AIC",type="drift")%>%summary()  
+```
+
+$H_0$ acceptée p=0.17\>0.05
+
+$H_0^1$ rejetée $F_c=8.8768>4.71$
+
+###### Non stationnarité type DS avec constante
+
+###### -log(inc)
+
+#modele3
+
+```{r}
+ur.df(log(inc),selectlags="AIC",type="trend")%>%summary()  
+```
+
+$H_0$ acceptée p=0.985\>0.05
+
+$H_0^3$ acceptée $F_c=1.901<6.49$
+
+#modele2
+
+```{r}
+ur.df(log(inc),selectlags="AIC",type="drift")%>%summary()  
+```
+
+$H_0$ acceptée p=0.05345\>0.05
+
+$H_0^1$ rejetée $F_c=27.7276>4.71$
+
+##### Non stationnarité type DS avec constante
+
+### -Stationnarisation des series (différentiation)
+
+```{r}
+dlinv<-log(inv)%>%diff()
+dlinc<-log(inc)%>%diff()
+dlcs<-log(cs)%>%diff()
+```
+
+```{r}
+apply(cbind(dlcs,dlinc,dlinv),2,adf.test,k=1) 
+apply(cbind(dlcs,dlinc,dlinv),2,pp.test)
+apply(cbind(dlcs,dlinc,dlinv),2,kpss.test)   
+```
+
+stationnaire
+
+### -Graphes des series stationnaires
+
+```{r}
+autoplot(cbind(dlinv,dlinc,dlcs))
+```
+
+### -Graphes + acf + pacf
+
+```{r}
+dlcs%>%ggtsdisplay(main="Serie cs differentiée")
+```
+
+```{r}
+dlinc%>%ggtsdisplay(main="Serie inc differentiée")
+```
+
+```{r}
+dlinv%>%ggtsdisplay(main="Serie inv differentiée")
+```
+
+### -Estimation des models univariés
+
+1-log(cs)
+
+arma(3,2)
+
+log(cs)=c+ar(3)+ma(2)
+
+```{r}
+fitcs<-Arima(dlcs,c(3,0,3),fixed=c(0,0,NA,0,NA,0,NA))
+fitcs%>%coeftest() 
+```
+
+```{r}
+fitcs%>%checkresiduals()  ###Bruit blanc 
+```
+
+test du bruit blanc
+
+Ljung-Box p=0.109\>0.05
+
+$H_0 : bruit blanc$ acceptée
+
+### -cerlce des racines unitaire
+
+```{r}
+autoplot(fitcs)   
+```
+
+2-log(inc)
+
+arma(2,3)
+
+log(inc)=c+ar(2)+ma(2)+ma(3)
+
+```{r}
+fitinc<-Arima(dlinc,c(3,0,3),fixed=c(0,NA,0,0,NA,NA,NA))
+fitinc%>%coeftest() 
+```
+
+```{r}
+fitinc%>%checkresiduals()  ###Bruit blanc 
+```
+
+test du bruit blanc
+
+Ljung-Box p=0.06712\>0.05
+
+$H_0 : bruit blanc$ acceptée
+
+### -cerlce des racines unitaire
+
+```{r}
+autoplot(fitinc)   
+```
+
+3-log(inv)
+
+arma(1,4)
+
+log(inv)=c+ma(4)+ar(1)
+
+```{r}
+fitinv<-Arima(dlinv,c(4,0,4),fixed=c(NA,0,0,0,0,0,0,NA,NA)) 
+fitinv%>%coeftest() 
+```
+
+```{r}
+fitinv%>%checkresiduals()  ###Bruit blanc 
+```
+
+test du bruit blanc
+
+Ljung-Box p=0.1187\>0.05
+
+$H_0 : bruit blanc$ acceptée
+
+### -cerlce des racines unitaire
+
+```{r}
+autoplot(fitinv)   
+```
+
+auto arima
+
+```{r}
+auto.arima(cs)
+auto.arima(inv)
+auto.arima(inc)
+```
+
+### -prediction
+
+```{r}
+forecast(Arima(cs,c(3,1,3),fixed=c(0,0,NA,0,NA,0)),h= 20)%>%autoplot(main="cs")
+```
+
+```{r}
+forecast(Arima(inc,c(3,1,3),fixed=c(0,NA,0,0,NA,NA)),h = 20)%>%autoplot(main="inc")
+```
+
+```{r}
+forecast(Arima(inv,c(4,1,4),fixed=c(NA,0,0,0,0,0,0,NA)),h= 20)%>%autoplot(main="inv")
+```
+
+# $II-$Analyse multivariée
+
+## 1-Modelisation VAR
+
+Selection de lag optimal du var par "AIC"
+
+```{r}
+VARselect(cbind(dlinv,dlinc,dlcs),lag.max = 8,type = "const")[["selection"]]
+```
+
+### -Estimation var 2
+
+```{r}
+var2=VAR(cbind(dlinv,dlinc,dlcs),p=2,type = "const")
+```
+
+### -Autocorrelation residus
+
+```{r}
+serial.test(var2)  
+```
+
+$H_0$ acceptée p-value\>0.05 bruit blanc
+
+### -Correlogrammes des residus
+
+```{r}
+var2%>%residuals()%>%acf()
+```
+
+### \_normalité des residus
+
+```{r}
+normality.test(var2)  
+```
+
+### -Heteroscedasticity test "ARCH"
+
+```{r}
+arch.test(var2)
+```
+
+$H_0$ acceptée p-value\>0.05 ---\> Homoscedasticity
+
+### -stabilité du modele
+
+```{r}
+stability(var2)%>%plot() 
+```
+
+modele est stabe
+
+### -unit root circle en utilisant les fonctions predéfinient
+
+```{r}
+urcp(var2)
+```
+
+### -Impulse response "analyse de choc"
+
+```{r}
+irf(var2,impulse = "dlinv",response = "dlcs",boot=TRUE,n.ahead = 20)%>%plot()
+irf(var2,impulse = "dlinc",response = "dlcs",boot=TRUE,n.ahead = 20)%>%plot()
+
+irf(var2,impulse = "dlinc",response = "dlinv",boot=TRUE,n.ahead = 20)%>%plot()
+irf(var2,impulse = "dlinv",response = "dlinc",boot=TRUE,n.ahead = 20)%>%plot()
+
+irf(var2,impulse = "dlcs",response = "dlinv",boot=TRUE,n.ahead = 20)%>%plot()
+irf(var2,impulse = "dlcs",response = "dlinc",boot=TRUE,n.ahead = 20)%>%plot()
+
+irf(var2,impulse = "dlcs",response = "dlcs",boot=TRUE,n.ahead = 20)%>%plot()
+irf(var2,impulse = "dlinv",response = "dlinv",boot=TRUE,n.ahead = 20)%>%plot()
+irf(var2,impulse = "dlinc",response = "dlinc",boot=TRUE,n.ahead = 20)%>%plot()
+```
+
+### -Prediction VAR
+
+```{r}
+prediction=predict(var2,n.ahead = 10,ci=0.95)
+prediction%>%plot()
+```
+
+## 2-Modelisation VECM
+
+### -causality tests
+
+```{r}
+causality(var2,cause = c("dlinv","dlinc"))   
+causality(var2,cause = c("dlinv","dlcs"))
+causality(var2,cause = c("dlinc","dlcs"))
+```
+
+H1 inv inc do cause cs
+
+### -cointegration johanson test
+
+```{r}
+ca.jo(cbind(cs,inv,inc),type = "trace",ecdet = "const",K=2)%>%summary()
+ca.jo(cbind(cs,inv,inc),type = "eigen",ecdet = "const",K=2)%>%summary()
+```
+
+### -Estimation VECM
+
+```{r}
+vecm=VECM(cbind(cs,inv,inc),lag = 2, r=1,estim = "2OLS")
+vecm%>%summary()
+```
+
+### -Convertion vecm -\> var
+
+```{r}
+vecmvar=vec2var(ca.jo(cbind(cs,inv,inc),type = "eigen",ecdet = "const",K=2),r=1)
+```
+
+### -Autocorrelation
+
+```{r}
+serial.test(vecmvar,lags.pt = 5)  
+```
+
+presence d autocorrelation
+
+### -Heteroscedasticity
+
+```{r}
+arch.test(vecmvar,lags.multi = 15,multivariate.only = T)
+```
+
+### -normality
+
+```{r}
+normality.test(vecmvar)
+```
+
+### -Impulse response
+
+```{r}
+irf(vecmvar,impulse = "inc", response = "cs", boot=TRUE ,n.ahead = 20)%>%plot()
+irf(vecmvar,impulse = "inv", response = "cs", boot=TRUE ,n.ahead = 20)%>%plot()
+
+irf(vecmvar,impulse = "cs", response = "inv", boot=TRUE ,n.ahead = 20)%>%plot()
+irf(vecmvar,impulse = "cs", response = "inc", boot=TRUE ,n.ahead = 20)%>%plot()
+
+irf(vecmvar,impulse = "inc", response = "inv", boot=TRUE ,n.ahead = 20)%>%plot()
+irf(vecmvar,impulse = "inv", response = "inc", boot=TRUE ,n.ahead = 20)%>%plot()
+```
