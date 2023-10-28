@@ -1,0 +1,124 @@
+---
+title: "Demand function"
+author: "tata iles - saidani akram - aissaoui younes"
+date: "2023-10-24"
+output: html_document
+---
+
+```{r include=FALSE}
+library(tidyverse)
+library(fpp)
+library(forecast)
+library(tseries)
+library(vars)
+library(urca)
+library(lmtest)
+library(ggforce)
+library(tsDyn)
+library(TSstudio)
+library(moments)
+library(jtools)
+library(ARDL)
+```
+
+```{r}
+data <- read.csv("D:/Downloads/econometrie/demand_data/306adaed-51e5-4cda-8eb3-a46e5ad77352_Data.csv")
+```
+
+```{r}
+data <- t(data) %>% as.data.frame()
+colnames(data) <- data[1,] 
+data <- data[,1:5]
+data <- data %>% slice(5:25) %>% mutate_if(is.character,as.numeric)
+str(data)
+```
+
+```{r}
+df <- cbind(
+  data$`Broad money (current LCU)`/data$`Consumer price index (2010 = 100)`,
+  data[,1],data[,2],data[,4]) %>% as.data.frame() 
+colnames(df) <-c("M2","gdp","inflation","Rir") 
+df %>% mutate(Year = 2002:2022)
+knitr::kable(head(df), col.names = gsub("[.]", " ", names(df)),caption = "DATA")
+```
+
+```{r}
+df %>% cor() %>% corrplot::corrplot(type = "upper")
+df^2 %>% cor() %>% corrplot::corrplot(type = "upper")
+```
+
+```{r}
+summary <- df %>%
+  summarise_all(list(
+    Mean = ~ mean(.),
+    Median = ~ median(.),
+    Max = ~ max(.),
+    Min = ~ min(.),
+    std = ~ sd(.),
+    Skewness = ~ skewness(.),
+    Kurtosis = ~ kurtosis(.),
+    Jarque_Bera = ~ jarque.test(.)$statistic
+  )) %>%
+  gather(key, value) %>%
+  separate(key, into = c("Statistic", "Variable"), sep = "_") %>%
+  spread(Statistic, value) %>% mutate_if(is.numeric,round,3)
+
+knitr::kable(summary, col.names = gsub("[.]", " ", names(summary)))
+```
+
+```{r}
+df <- df %>% mutate_at(vars(M2,gdp),log)
+```
+
+```{r}
+df$M2 %>% ggtsdisplay(main="M2 money")
+df$gdp %>% ggtsdisplay(main="gdp")
+df$inflation %>% ggtsdisplay(main="inflation")
+df$Rir %>% ggtsdisplay(main="Real Interest Rate")
+```
+
+```{r}
+apply(df,2,pp.test)
+```
+
+```{r warning=FALSE}
+apply(df,2,kpss.test)
+```
+
+```{r}
+statio <- data.frame("Serie"=colnames(df),"pp.test"=c("I(1)","I(1)","I(1)","I(1)"),
+                  "kpss.test"=c("I(1)","I(1)","I(0)","I(0)"))
+knitr::kable(statio, col.names = gsub("[.]", " ", names(statio)))
+```
+
+```{r}
+VARselect(cbind(ts(df$M2),ts(df$gdp),ts(df$inflation),ts(df$Rir)),lag.max = 8,type = "const")[["selection"]]
+```
+
+```{r}
+ca.jo(cbind(ts(df$M2),ts(df$gdp),ts(df$inflation),ts(df$Rir)),type = "trace",ecdet = "const",K=2) %>% summary()
+```
+
+```{r}
+vecm=VECM(df,lag = 2, r=1,estim = "2OLS")
+vecm%>%summary()
+```
+
+```{r}
+models <- auto_ardl(M2 ~ gdp + inflation + Rir, data = df, max_order = 5)
+models$top_orders
+```
+
+```{r}
+ardl <- models$best_model
+ardl$order
+```
+
+```{r}
+summary(ardl)
+```
+
+```{r}
+model <- ardl(M2 ~ gdp + inflation + Rir, data = df, order = c(2,2,4,4))
+summary(model)
+```

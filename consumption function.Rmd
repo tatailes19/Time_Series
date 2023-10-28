@@ -1,0 +1,365 @@
+---
+title: "MPRA"
+author: "tata iles"
+date: "2023-10-05"
+output: html_document
+---
+
+```{r include=FALSE}
+library(tidyverse)
+library(fpp)
+library(forecast)
+library(tseries)
+library(readxl)
+library(vars)
+library(urca)
+library(lmtest)
+library(ggforce)
+library(tsDyn)
+library(TSstudio)
+library(moments)
+library(skimr)
+library(jtools)
+```
+
+# DATA
+
+```{r include=FALSE}
+gdp <- read.csv("D:/Python-R/Databases/mpra/realgdp/c7d1e6d6-ab6c-4740-907f-1194646bec9e_Data.csv")
+
+hfce <- read.csv("D:/Python-R/Databases/mpra/hfce/d93ca812-b285-4f8b-b30f-8b688872f28a_Data.csv")
+
+i <- read.csv("D:/Python-R/Databases/mpra/realinterstrate/d25ecd02-8d03-4083-968d-4a91941dcffc_Data.csv")
+```
+
+```{r include=FALSE}
+gdp <- t(gdp) %>% as.data.frame() %>% slice(5:38) 
+
+hfce <- t(hfce) %>% as.data.frame() %>%  slice(5:38)
+
+i <- t(i) %>% as.data.frame() %>%  slice(5:38)
+```
+
+```{r include=FALSE}
+nigeria <- cbind(gdp$V2,hfce$V1,i$V1)%>%as.data.frame()
+soaf <- cbind(gdp$V1,hfce$V2,i$V2)%>%as.data.frame()
+```
+
+```{r include=FALSE}
+colnames(nigeria) <- c("gdp","hfce","i%")
+colnames(soaf) <- c("gdp","hfce","i%")
+```
+
+```{r include=FALSE}
+nigeria <- nigeria %>%
+  mutate_if(is.character,as.numeric) %>% mutate(gdp = log(gdp),
+                                                hfce = log(hfce))
+
+soaf <- soaf %>%
+  mutate_if(is.character,as.numeric) %>% mutate(gdp = log(gdp),
+                                                hfce = log(hfce))
+```
+
+```{r include=FALSE}
+median(nigeria$hfce,na.rm = TRUE) -> med
+
+nigeria$hfce <- replace_na(nigeria$hfce,med)
+```
+
+```{r echo=FALSE}
+nigsh <- nigeria %>% mutate(Year = 1980:2013)
+sosh <- soaf %>% mutate(Year = 1980:2013)
+knitr::kable(head(nigsh), col.names = gsub("[.]", " ", names(nigsh)),caption = "Nigeria")
+knitr::kable(head(sosh), col.names = gsub("[.]", " ", names(sosh)),caption = "South Africa")
+```
+
+# Summary Stats
+
+## NIGERIA
+
+```{r echo=FALSE, warning=FALSE}
+summary_nigeria <- nigeria %>%
+  summarise_all(list(
+    Mean = ~ mean(.),
+    Median = ~ median(.),
+    Max = ~ max(.),
+    Min = ~ min(.),
+    std = ~ sd(.),
+    Skewness = ~ skewness(.),
+    Kurtosis = ~ kurtosis(.),
+    Jarque_Bera = ~ jarque.test(.)$statistic
+  )) %>%
+  gather(key, value) %>%
+  separate(key, into = c("Statistic", "Variable"), sep = "_") %>%
+  spread(Statistic, value) %>% mutate_if(is.numeric,round,3)
+
+knitr::kable(summary_nigeria, col.names = gsub("[.]", " ", names(summary_nigeria)))
+```
+
+## South Africa
+
+```{r echo=FALSE, warning=FALSE}
+summary_soaf <- soaf %>%
+  summarise_all(list(
+    Mean = ~ mean(., na.rm = TRUE),
+    Median = ~ median(., na.rm = TRUE),
+    Max = ~ max(., na.rm = TRUE),
+    Min = ~ min(., na.rm = TRUE),
+    std = ~ sd(.,na.rm = TRUE),
+    Skewness = ~ skewness(., na.rm = TRUE),
+    Kurtosis = ~ kurtosis(., na.rm = TRUE),
+    Jarque_Bera = ~ jarque.test(.)$statistic
+  )) %>%
+  gather(key, value) %>%
+  separate(key, into = c("Statistic", "Variable"), sep = "_") %>%
+  spread(Statistic, value) %>% mutate_if(is.numeric,round,3)
+
+knitr::kable(summary_soaf, col.names = gsub("[.]", " ", names(summary_soaf)))
+```
+
+# Stationnarity
+
+## Graphes (acf/pacf)
+
+### Nigeria
+
+```{r echo=FALSE}
+nigeria$gdp %>% ggtsdisplay(main="Nigerian Real gdp")
+nigeria$hfce %>% ggtsdisplay(main="Nigerian hfce")
+nigeria$`i%` %>% ggtsdisplay(main="Nigerian Real Interest Rate")
+```
+
+### South Africa
+
+```{r echo=FALSE}
+soaf$gdp %>% ggtsdisplay(main="South Africa's Real gdp")
+soaf$hfce %>% ggtsdisplay(main="South Africa's hfce")
+soaf$`i%` %>% ggtsdisplay(main="South Africa's Real Interst Rate")
+```
+
+From the graphs we can see that
+
+```{r echo=FALSE}
+adf <- data.frame("Country"=c("Nigeria","South Africa"),
+                       "GDP"=c("not stationary","not stationary"),
+                       "HFCE"=c("not stationary","not stationary"),
+                       "Interest Rate" = c("stationary","stationary"))
+knitr::kable(adf, col.names = gsub("[.]", " ", names(adf)))
+```
+
+## ADF test
+
+### Nigeria
+
+```{r echo=FALSE}
+apply(nigeria,2,adf.test)
+```
+
+```{r include=FALSE}
+cat("GDP\n\n")
+ur.df(nigeria$gdp,selectlags="AIC",type="drift")%>%summary()
+cat("nHFCE\n\n")
+ur.df(nigeria$hfce,selectlags="AIC",type="drift")%>%summary()
+cat("nRIR\n\n")
+ur.df(nigeria$`i%`,selectlags="AIC",type="drift")%>%summary() 
+```
+
+### South Africa
+
+```{r echo=FALSE}
+apply(soaf,2,adf.test)
+```
+
+```{r include=FALSE}
+cat("GDP\n\n")
+ur.df(soaf$gdp,selectlags="AIC",type="drift")%>%summary()
+cat("HFCE\n\n")
+ur.df(soaf$hfce,selectlags="AIC",type="drift")%>%summary()
+cat("RIR\n\n")
+ur.df(soaf$`i%`,selectlags="AIC",type="drift")%>%summary() 
+```
+
+## Stationarizing
+
+```{r echo=FALSE}
+diff(nigeria$gdp) %>% ggtsdisplay(main="Nigerian Real gdp")
+nigeria$hfce %>% diff() %>% ggtsdisplay(main="Nigerian hfce")
+```
+
+```{r echo=FALSE}
+adf.test(diff(nigeria$`i%`))
+```
+
+```{r echo=FALSE}
+diff(soaf$gdp) %>% ggtsdisplay(main="South africa's Real gdp")
+diff(soaf$hfce) %>% diff() %>% ggtsdisplay(main="South africa's hfce")
+diff(soaf$`i%`) %>% diff() %>% ggtsdisplay(main="South africa's hfce")
+```
+
+```{r echo=FALSE, warning=FALSE}
+adf.test(diff(soaf$`i%`))
+```
+
+From the test we see that non of the series is stationary and taking the first difference makes them stationary
+
+```{r echo=FALSE}
+adf <- data.frame("Country"=c("Nigeria","South Africa"),
+                       "GDP"=c("I(1)","I(1)"),
+                       "HFCE"=c("I(1)","I(1)"),
+                       "Interest Rate" = c("I(1)","I(1)"))
+knitr::kable(adf, col.names = gsub("[.]", " ", names(adf)))
+```
+
+# Modelisation ECM
+
+```{r warning=FALSE, include=FALSE}
+VARselect(cbind(ts(nigeria$gdp),ts(nigeria$hfce),ts(nigeria$`i%`)),lag.max = 8,type = "const")[["selection"]]
+
+          
+VARselect(cbind(ts(soaf$gdp),ts(soaf$hfce),ts(soaf$`i%`)),lag.max = 8,type = "const")[["selection"]]
+```
+
+## Granger causality and Johanson cointegration tests
+
+### Nigeria
+
+```{r echo=FALSE, warning=FALSE}
+diff_nigeria <- cbind(diff(nigeria$gdp),diff(nigeria$hfce),diff(nigeria$`i%`)) 
+
+var=VAR(cbind(diff(nigeria$gdp),diff(nigeria$hfce),diff(nigeria$`i%`)),
+        p=5,type = "const")
+
+causality(var,cause = c("y1","y2"))   
+causality(var,cause = c("y2","y3"))
+causality(var,cause = c("y1","y3"))
+```
+
+```{r echo=FALSE}
+ca.jo(cbind(ts(nigeria$gdp),ts(nigeria$hfce),ts(nigeria$`i%`)),type = "trace",ecdet = "const",K=6)%>%summary()
+```
+
+### South Africa
+
+```{r echo=FALSE, warning=FALSE}
+diff_saof <- cbind(diff(soaf$gdp),diff(soaf$hfce),diff(soaf$`i%`)) 
+
+var2=VAR(cbind(diff(soaf$gdp),diff(soaf$hfce),diff(soaf$`i%`)),
+        p=5,type = "const")
+
+causality(var2,cause = c("y1","y2"))   
+causality(var2,cause = c("y2","y3"))
+causality(var2,cause = c("y1","y3"))
+```
+
+```{r echo=FALSE, paged.print=TRUE}
+ca.jo(cbind(ts(soaf$gdp),ts(soaf$hfce),ts(soaf$`i%`)),type = "trace",ecdet = "const",K=2)%>%summary()
+```
+
+```{r echo=FALSE}
+granger <- data.frame("Country"=c("Nigeria","South Africa"),"Result"=c("gdp interst rate cause hfce","gdp interst rate cause hfce"))
+knitr::kable(granger, col.names = gsub("[.]", " ", names(granger)),caption = "Granger test results")
+```
+
+```{r echo=FALSE}
+johanson <- data.frame("Country"=c("Nigeria","South Africa"),"Result"=c("contegrated (1)","not cointegrated"))
+knitr::kable(johanson, col.names = gsub("[.]", " ", names(johanson)),caption = "Johanson test results")
+```
+
+# Regresssion
+
+$HFCE_t = Ω + Ω_1lnRGDP_t + Ω_2lnHFCE_{t-1} + Ω_3RIR_t + η_t$
+
+## Nigeria
+
+```{r include=FALSE}
+ln_HFCE1 = nigeria$hfce
+ln_RGDP1 = nigeria$gdp
+RIR1 =nigeria$`i%`
+
+ln_HFCE1_t_1 = lag(ln_HFCE1,1)
+
+reg_1_data <- cbind(ln_HFCE1,ln_RGDP1,ln_HFCE1_t_1,RIR1) %>% as.data.frame()
+```
+
+```{r include=FALSE}
+model <- lm(ln_HFCE1 ~ ln_RGDP1+ln_HFCE1_t_1+RIR1, data = reg_1_data)
+
+
+residuals <- residuals(model)
+
+
+lagged_residuals <- lag(residuals, 1)
+
+reg_1_data$`AR(1)` <- c(NA,lagged_residuals)
+```
+
+```{python}
+import statsmodels.api as sm
+```
+
+```{python}
+data1 = r.reg_1_data
+
+X1 = data1[["ln_RGDP1","ln_HFCE1_t_1","RIR1"]]
+Y1 = data1[["ln_HFCE1"]]
+
+X1=sm.add_constant(X1)
+result1=sm.OLS(Y1,X1,missing= "drop").fit()
+print(result1.summary())
+```
+
+$HFCE_t = -1.2758 + 0.2921lnRGDP_t + 0.7533lnHFCE_{t-1} + 0.0094RIR_t + η_t$
+
+## South Africa
+
+```{r include=FALSE}
+ln_HFCE2 = soaf$hfce
+ln_RGDP2 = soaf$gdp
+RIR2 =soaf$`i%`
+
+ln_HFCE2_t_1 = lag(ln_HFCE2,1)
+
+reg_2_data <- cbind(ln_HFCE2,ln_RGDP2,ln_HFCE2_t_1,RIR2) %>% as.data.frame()
+```
+
+```{python}
+data2 = r.reg_2_data
+
+X2 = data2[["ln_RGDP2","ln_HFCE2_t_1","RIR2"]]
+Y2 = data2[["ln_HFCE2"]]
+
+X2=sm.add_constant(X2)
+result2=sm.OLS(Y2,X2,missing= "drop").fit()
+print(result2.summary())
+```
+
+$HFCE_t = -1.318 + 0.9921lnRGDP_t + 0.0409lnHFCE_{t-1} + 0.00375RIR_t + η_t$
+
+Adaptive expectation coefficient for Nigeria 𝝍 =1 - .753369 = 0.246631
+
+Adaptive expectation coefficient for South Africa 𝝍 =1- 0.040977 = 0.959023
+
+```{r include=FALSE}
+final <- data.frame("Country"=c("Nigeria","South Africa"),
+           "Elasticity of Consumption with respect to actual income"=c(0.292169,0.992103),
+           "Adaptive expectation coefficient(λ)"=c( 0.246631,0.959023),
+           "Elasticity of consumption with Respect to permanent income(β)"=c(0.292169/0.246631,0.992103/0.959023))
+```
+
+```{r echo=FALSE}
+knitr::kable(final, col.names = gsub("[.]", " ", names(final)))
+```
+
+### Adding the AR(1) for Nigeria regression
+
+```{python}
+data1 = r.reg_1_data
+
+X1 = data1[["ln_RGDP1","ln_HFCE1_t_1","RIR1","AR(1)"]]
+Y1 = data1[["ln_HFCE1"]]
+
+X1=sm.add_constant(X1)
+result1=sm.OLS(Y1,X1,missing= "drop").fit()
+print(result1.summary())
+
+```
