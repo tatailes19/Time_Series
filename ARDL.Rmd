@@ -1,0 +1,162 @@
+---
+title: "Untitled"
+author: "tata iles - saidani akram"
+date: "2023-11-20"
+output:
+  html_document:
+    toc: true
+    theme: united
+    fontsize: 12pt
+---
+
+\tableofcontents
+
+```{r include=FALSE}
+library(tidyverse)
+library(highcharter)
+library(vars)
+library(lmtest)
+library(viridis)
+library(forecast)
+library(tseries)
+library(ARDL)
+```
+
+```{r include=FALSE}
+data <- read.csv("D:/Python-R/Databases/Données Model ardl.csv")
+```
+
+# Data Overview
+
+```{r echo=FALSE}
+knitr::kable(head(data), col.names = gsub("[.]", " ", names(data)),caption = "DATA")
+```
+
+# Series Visualization
+
+```{r echo=FALSE}
+data_st <- cbind(data$year,scale(data[,2:4],center = TRUE,scale = TRUE)) %>% as.data.frame()
+
+highchart() %>%
+  hc_colors(viridis(3)) %>% 
+  hc_title(text = "Series Graphs") %>%
+  hc_xAxis(type = "datetime") %>%
+  hc_yAxis(title = list(text = "Values")) %>%
+  hc_add_series(data,"line", hcaes(x = data_st$V1, y = data_st$gdp), name = "GDP") %>%
+  hc_add_series(data,"line", hcaes(x = data_st$V1, y = data_st$energy), name = "Energy") %>%
+  hc_add_series(data,"line", hcaes(x = data_st$V1, y = data_st$train), name = "Train")
+```
+
+# Modeling
+
+## Causality test
+
+No causality effects from the dependent variable
+
+```{r echo=FALSE}
+cat("Does gdp cause energy \n ")
+grangertest(data$gdp,data$energy)
+cat("----------------------------------------------------\nDoes gdp cause train\n")
+grangertest(data$gdp,data$train)
+```
+
+## Stationarity tests
+
+```{r echo=FALSE}
+ggtsdisplay(data$gdp)
+ggtsdisplay(data$energy)
+ggtsdisplay(data$train)
+```
+
+```{r echo=FALSE}
+apply(data[,2:4],2,pp.test)
+```
+
+## Stationarity Results
+
+```{r echo=FALSE}
+statio <- data.frame("Serie"=colnames(data[,2:4]),"pp.test"=c("I(1)","I(1)","I(1)"))
+knitr::kable(statio, col.names = gsub("[.]", " ", names(statio)))
+```
+
+## Select ARDL Order
+
+```{r echo=FALSE, warning=FALSE}
+data_ts <- ts(data = data[, -1], start = 1920,end=1957, frequency = 1)
+
+AIC_selection <- auto_ardl(data = data_ts, max_order = 5, selection = "AIC",
+
+formula = gdp ~ energy + train | crisis29,
+selection_minmax = "min", search_type = "horizontal",
+start = 1920, end = 1957, grid = TRUE)
+
+AIC_selection
+```
+
+## Best Model
+
+```{r echo=FALSE}
+ardl_model<- ardl(data = data_ts, order = AIC_selection$best_order,
+
+formula = gdp ~ energy + train | crisis29, start = 1920, end = 1957)
+
+summary(ardl_model)
+```
+
+## Validation tests
+
+### Autocorrelation & Heteroscedasticity
+
+Residuals are not autocorrelated and are homoscedastic
+
+```{r echo=FALSE}
+for (i in 1:2){
+godfrey<-bgtest(ardl_model, order = i, type = "Chisq")
+print(godfrey)
+}
+print(bptest(ardl_model, studentize = TRUE))
+```
+
+### Residual plot & Normality 
+
+```{r echo=FALSE}
+ardl_model %>% checkresiduals()
+```
+
+### Model Stability
+
+#### Short term
+
+Model is stable
+
+```{r echo=FALSE}
+for (i in 2:3){
+resettestt<-resettest(ardl_model, power = 2:i, type = "fitted")
+print(resettestt)
+}
+```
+
+#### Long term
+
+Model is stable
+
+```{r echo=FALSE}
+f_bound <- bounds_f_test(ardl_model, case = 3, exact = TRUE, R = 40000, test = "F",vcov_matrix = NULL)
+f_bound
+```
+
+## Final Equation
+
+### Short term
+
+```{r echo=FALSE}
+long_run <- multipliers(ardl_model, type = "lr", vcov_matrix = NULL)
+print(long_run)
+```
+
+### Long term
+
+```{r echo=FALSE}
+restricted<- recm(ardl_model, case = 3)
+summary(restricted)
+```
